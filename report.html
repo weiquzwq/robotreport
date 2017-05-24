@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="-1">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="Generator" content="">
+<link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,AAABAAEAEBAQAAEABAAoAQAAFgAAACgAAAAQAAAAIAAAAAEABAAAAAAAAAIAAAAAAAAAAAAAEAAAAAAAAAAAAAAAJEBoACtnfgA5cYYAERsiAEx2lAAbKkQAcazBACZCVwAcM1cAK0ucAAMDBQAnQncASG+FABkoVQAyWmgA6f8SgvH/Ij99+GLyIinyJfn/Yi//KSLzUy9iZogpIld3/4JVVTkid7vyUjNVNVJEAGOZ6Z7pXwAABpmZkRiLAAAGiJZpmGAAAEEt3SXdxAAATC7o/u3EAAC8MRZpjasAAAY1VVVTYAAABKqqqqpAAAAADKqq4AAAAAAAv4sAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMADAADgAwAA4AcAAOAHAADgBwAAwAcAAOAHAADgDwAA8A8AAPg/AAD+fwAA">
+<link rel="stylesheet" type="text/css" href="common.css" media="all">
+<link rel="stylesheet" type="text/css" href="report.css" media="all">
+<link rel="stylesheet" type="text/css" href="print.css" media="print">
+<link rel="stylesheet" type="text/css" href="../common/js_disabled.css" media="all">
+<link rel="stylesheet" type="text/css" href="../common/doc_formatting.css" media="all">
+<script type="text/javascript" src="../lib/jquery.min.js"></script>
+<script type="text/javascript" src="../lib/jquery.tmpl.min.js"></script>
+<script type="text/javascript" src="../lib/jquery.tablesorter.min.js"></script>
+<script type="text/javascript" src="../lib/jsxcompressor.min.js"></script>
+<script type="text/javascript" src="fileloading.js"></script>
+<script type="text/javascript" src="model.js"></script>
+<script type="text/javascript" src="util.js"></script>
+<script type="text/javascript" src="testdata.js"></script>
+<script type="text/javascript" src="view.js"></script>
+<script type="text/javascript" src="../common/storage.js"></script>
+<!-- JS MODEL --><script type="text/javascript" src="../testdata/data.js"></script>
+<title></title>
+</head>
+<body>
+<div id="javascript-disabled">
+  <h1>打开报告失败</h1>
+  <ul>
+    <li>请验证在您的浏览器设置中 <b>已启用JavaScript.</b></li>
+    <li>确定您使用的是<b>比较新的浏览器</b>. 推荐使用Firefox 3.5, IE 8, 或者与他版本相当的浏览器以及比它们版本靠后的浏览器ß.</li>
+    <li>检查在您的浏览器上面是否 <b>JavaScript错误日志</b>的消息. 如果您怀疑这是一个报告的bug请报告技术团队.</li>
+  </ul>
+</div>
+<script type="text/javascript">removeJavaScriptDisabledWarning();</script>
+
+<div id="header"></div>
+<div id="statistics-container"></div>
+<div id="test-details-container"></div>
+
+<script type="text/javascript">
+
+    var isStatus = 'FAIL'
+
+$(document).ready(function () {
+    try {
+        var topsuite = window.testdata.suite();
+        var topstats = window.testdata.suite().allTests();
+    } catch (error) {
+        addJavaScriptDisabledWarning(error);
+        return;
+    }
+    setBackground(topstats);
+    initLayout(topsuite.name, 'Report');
+    storage.init('report');
+    addSummary(topsuite);
+    addStatistics();
+    addDetails();
+    window.prevLocationHash = '';
+    window.onhashchange = showDetailsByHash;
+});
+
+function setBackground(topstats) {
+    var color;
+    var passed = calculatePassed(topstats);
+    var total=topstats.length;
+    var passPercent=passed/total*100;
+    if (passPercent<95)
+        $('body').css('background-color', 'rgb(255, 102, 102)');
+    else if (passPercent>=95&&passPercent<100)
+        $('body').css('background-color', '#FFF68F');
+    else
+        $('body').css('background-color', 'rgb(153, 238, 153)');
+}
+
+function addSummary(topsuite) {
+    var opts = {logURL: window.settings.logURL};
+    $.tmpl('summaryTableTemplate', topsuite, opts).insertAfter($('#header'));
+}
+
+function addDetails() {
+    addCustomSortersForDetails();
+    if (window.location.hash)
+        showDetailsByHash();
+    else
+        totalDetailSelected('critical')
+}
+
+function addCustomSortersForDetails() {
+    $.tablesorter.addParser({
+        id: 'criticality',
+        type: 'numeric',
+        is: function(s) {
+            return false;  // do not auto-detect
+        },
+        format: function(s) {
+            return s === 'yes' ? 0 : 1;
+        }
+    });
+    $.tablesorter.addParser({
+        id: 'times',
+        type: 'text',
+        is: function(s) {
+            return false;  // do not auto-detect
+        },
+        format: function(s) {
+            return s.substring(0, 21);  // return only start time
+        }
+    });
+}
+
+function showDetailsByHash() {
+    // Cannot use window.location.hash because Firefox incorrectly decodes it:
+    // http://stackoverflow.com/questions/1703552/encoding-of-window-location-hash
+    var hash = window.location.href.split('#').slice(1).join('#');
+    if (!hash || hash == window.prevLocationHash)
+        return;
+    var parts = hash.split('?');
+    var name = parts.shift();
+    var query = parts.join('?');
+    if (name == 'search') {
+        var params = util.parseQueryString(query);
+        searchExecuted(params.suite || '', params.test || '',
+                       params.include || '', params.exclude || '');
+        return
+    }
+    query = decodeURIComponent(query);
+    var action = {'totals': totalDetailSelected,
+                  'tags':   tagDetailSelected,
+                  'suites': suiteDetailSelected}[name];
+    if (action)
+        action(query);
+}
+
+function totalDetailSelected(name) {
+    renderTotalSelector(name);
+    if (name) {
+        renderTotalDetails(name);
+        updatePrintSelector(name == 'critical' ? 'Critical Tests' : 'All Tests');
+    }
+ //   scrollToSelector('totals', name);
+}
+
+function renderTotalSelector(name) {
+    var args = {linkTarget: (name) ? 'totals?'+name : 'totals',
+                totalTabStatus: 'detail-tab-selected'};
+    renderSelector(args, 'totalDetailsSelectorTemplate', {selected: name});
+}
+
+function renderTotalDetails(name) {
+    var index = (name == 'critical') ? 0 : 1;
+    if(index==0){
+        isStatus='FAIL';
+    }
+    else{
+        isStatus='ALL';
+    }
+
+    var stat = window.testdata.statistics().total[index];
+    var tests = getTotalTests(name);
+    stat.totalTime = calculateTotalTime(tests);
+    $.tmpl('tagOrTotalDetailsTemplate', stat).appendTo('#details-header');
+    drawTestDetailsTable(tests, true);
+}
+
+function updatePrintSelector(name, info) {
+    if (info)
+        name += ' (' + info + ')';
+    $('#print-selector').html(name);
+}
+
+function tagDetailSelected(name) {
+    renderTagSelector(name);
+    if (name) {
+        var tag = findTag(name);
+        if (tag) {
+            renderTagDetails(tag);
+            updatePrintSelector(name, tag.info);
+        }
+    }
+ //   scrollToSelector('tags', name);
+}
+
+function findTag(name) {
+    var tags = window.testdata.statistics().tag;
+    for (var i = 0, len = tags.length; i < len; i++) {
+        if (tags[i].label == name)
+            return tags[i];
+    }
+    return null;
+}
+
+function renderTagSelector(name) {
+    var args = {linkTarget: (name) ? 'tags?'+name : 'tags',
+                tagTabStatus: 'detail-tab-selected'};
+    var stats = {tags: window.testdata.statistics().tag, selected: name};
+    renderSelector(args, 'tagDetailsSelectorTemplate', stats);
+    isStatus='ALL';
+}
+
+function renderTagDetails(tag) {
+    var tests = getTestsHavingTag(tag);
+    tag.totalTime = calculateTotalTime(tests);
+    $.tmpl('tagOrTotalDetailsTemplate', tag).appendTo('#details-header');
+    drawTestDetailsTable(tests, true);
+}
+
+function suiteDetailSelected(id) {
+    renderSuiteSelector(id);
+    if (id)
+        renderSuiteDetails(id);
+//    scrollToSelector('suites', id);
+}
+
+function renderSuiteSelector(id) {
+    var args = {linkTarget: (id) ? 'suites?'+id : 'suites',
+                suiteTabStatus: 'detail-tab-selected'};
+    var stats = {suites: window.testdata.statistics().suite,
+                 selected: id};
+    renderSelector(args, 'suiteDetailsSelectorTemplate', stats);
+    isStatus='ALL';
+}
+
+function renderSuiteDetails(id) {
+    window.testdata.ensureLoaded(id, function (ids) {
+        var suite = window.testdata.findLoaded(id);
+        var opts = {logURL: window.settings.logURL};
+        $.tmpl('suiteDetailsTemplate', suite, opts).appendTo('#details-header');
+        drawTestDetailsTable(suite.allTests(), false);
+        updatePrintSelector(suite.fullName);
+    });
+}
+
+function searchExecuted(suite, test, include, exclude) {
+    renderSearchSelector(suite, test, include, exclude);
+    if (suite || test || include || exclude) {
+        renderSearchDetails(suite, test, include, exclude);
+     /*   scrollToSelector('search' +
+                         '?suite=' + encodeURIComponent(suite) +
+                         '&test=' + encodeURIComponent(test) +
+                         '&include=' + encodeURIComponent(include) +
+                         '&exclude=' + encodeURIComponent(exclude));*/
+    }
+    /* else {
+        scrollToSelector('search');
+    }*/
+}
+
+function renderSearchSelector(suite, test, include, exclude) {
+    var args = {linkTarget: (suite || test || include || exclude) ?
+                            ('search?suite=' + suite + '&test=' + test + '&include=' + include + '&exclude=' + exclude) :
+                            'search',
+                searchTabStatus: 'detail-tab-selected'};
+    var search = {suite: suite, test: test, include: include, exclude: exclude};
+    renderSelector(args, 'searchSelectorTemplate', search);
+    isStatus='ALL';
+}
+
+function renderSearchDetails(suite, test, include, exclude) {
+    var tests = searchTests(util.escape(suite), util.escape(test),
+                            util.escape(include), util.escape(exclude));
+    var passed = calculatePassed(tests);
+    var stats = {total: tests.length,
+                 pass: passed,
+                 fail: tests.length - passed,
+                 totalTime: calculateTotalTime(tests)};
+    $.tmpl('tagOrTotalDetailsTemplate', stats).appendTo('#details-header');
+    drawTestDetailsTable(tests, true);
+}
+
+function searchTests(suitePattern, testPattern, includePattern, excludePattern) {
+    var tests;
+    if (suitePattern)
+        tests = window.testdata.suite().searchTestsInSuite(suitePattern);
+    else
+        tests = window.testdata.suite().allTests();
+    return util.filter(tests, function (test) {
+        if (testPattern && !test.matchesNamePattern(testPattern))
+            return false;
+        if (includePattern && !test.matchesTagPattern(includePattern))
+            return false;
+        return !(excludePattern && test.matchesTagPattern(excludePattern));
+    });
+}
+
+function scrollToSelector(base, query) {
+    $('#test-details-container').css('min-height', $(window).height());
+    var anchor = query ? base + '?' + encodeURIComponent(query) : base;
+    window.location.hash = window.prevLocationHash = anchor;
+}
+
+function renderSelector(args, template, stats) {
+    window.elementsToRender = [];
+    var container = $('#test-details-container');
+    container.empty();
+    $.tmpl('detailsHeaderTemplate', args).appendTo(container);
+    $.tmpl(template, stats).appendTo(container);
+}
+
+function drawTestDetailsTable(tests, sortByStatus) {
+    if (!tests.length)
+        return;
+    renderTestDetailsHeader();
+    window.elementsToRender = tests;
+    var target = $('#test-details').find('tbody');
+    renderTestDetails(sortByStatus, target);
+}
+
+function renderTestDetailsHeader() {
+    var header = $.tmpl('testDetailsTableTemplate');
+    hideHiddenDetailsColumns(header);
+    header.appendTo('#test-details-container');
+}
+
+function sortByStatus(t1, t2) {
+    if (t1.status != t2.status)
+        return t1.status == 'FAIL' ? -1 : 1;
+    if (t1.isCritical != t2.isCritical)
+        return t1.isCritical ? -1 : 1;
+    return t1.fullName < t2.fullName ? -1 : 1;
+}
+
+function getTestsHavingTag(tag) {
+    return window.testdata.suite().searchTestsByTag(tag).sort(sortByStatus);
+}
+
+function getTotalTests(name) {
+    if (name == 'critical')
+        return window.testdata.suite().criticalTests().sort(sortByStatus);
+    return window.testdata.suite().allTests().sort(sortByStatus);
+}
+
+function calculateTotalTime(tests) {
+    var total = 0;
+    for (var i = 0, len = tests.length; i < len; i++)
+        total += tests[i].times.elapsedMillis;
+    return util.formatElapsed(total);
+}
+
+function calculatePassed(tests) {
+    var passed = util.filter(tests, function (test) {
+        return test.status == 'PASS';
+    });
+    return passed.length;
+}
+
+function renderTestDetails(sortByStatus, target) {
+    if (!window.elementsToRender.length)
+        return;
+    var tests = popUpTo(window.elementsToRender, 50);
+    renderTestDetailsRows(tests, target);
+    if (window.elementsToRender.length)
+        setTimeout(function () {renderTestDetails(sortByStatus, target);}, 0);
+    else
+        configureTableSorter(sortByStatus);
+}
+
+function renderTestDetailsRows(tests, target) {
+    var rows = $.tmpl('testDetailsTableRowTemplate', tests,
+                      {logURL: window.settings.logURL});
+    rows.find('a').click(stopPropagation);
+    hideHiddenDetailsColumns(rows);
+    rows.appendTo(target);
+}
+
+function configureTableSorter(sortByStatus) {
+    var config = {headers: {3: {sorter: 'criticality'},
+                            6: {sortInitialOrder: 'desc'},
+                            7: {sorter: 'times'}},
+                  selectorSort: '.details-col-header'};
+    if (sortByStatus)
+        config['sortList'] = [[4, 0], [3, 0]];
+    $('#test-details').tablesorter(config);
+}
+
+function popUpTo(list, upTo) {
+    var result = [];
+    while (list.length > 0 && result.length < upTo)
+        result.push(list.shift());
+    return result;
+}
+
+function toggleDetailsColumn(name) {
+    var column = $('.details-col-' + name);
+    column.toggleClass('hidden');
+    var hidden = column.hasClass('hidden');
+    storage.set(name, hidden ? 'hidden' : 'visible');
+    column.find('.details-col-toggle').html(hidden ? '&hellip;' : '&times;');
+}
+
+
+function setstatus(status) {
+    isStatus=status;
+}
+
+
+function hideHiddenDetailsColumns(elem) {
+    var names = ['doc', 'tags', 'msg', 'elapsed', 'times'];
+    for (var i = 0; i < names.length; i++) {
+        var name = names[i];
+        if (storage.get(name, 'visible') == 'hidden') {
+            var column = elem.find('.details-col-' + name);
+            column.addClass('hidden');
+            column.find('.details-col-toggle').html('&hellip;');
+        }
+    }
+}
+</script>
+
+<script type="text/x-jquery-tmpl" id="summaryTableTemplate">
+  <h2>综合信息</h2>
+  <table class="details">
+    <tr>
+      <th>状态:</th>
+      {{if criticalFailed||totalFailed}}
+      <td><a href="#totals?critical" onclick="totalDetailSelected('critical')"
+             class="fail">${totalFailed} 个测试用例{{if totalFailed != 1}}{{/if}} 不通过</a></td>
+      {{else}}
+      <td><a href="#totals?all" onclick="totalDetailSelected('all')"
+             class="pass">所有的测试都通过了</a></td>
+      {{/if}}
+    </tr>
+    {{if doc()}}
+    <tr>
+      <th>说明:</th>
+      <td class="doc">{{html doc()}}</td>
+    </tr>
+    {{/if}}
+    {{each metadata}}
+    <tr>
+      <th>{{html $value[0]}}:</th>
+      <td class="doc">{{html $value[1]}}</td>
+    </tr>
+    {{/each}}
+    {{if times.startTime != 'N/A'}}
+    <tr>
+      <th>开始时间:</th>
+      <td>${times.startTime}</td>
+    </tr>
+    {{/if}}
+    {{if times.endTime != 'N/A'}}
+    <tr>
+      <th>结束时间:</th>
+      <td>${times.endTime}</td>
+    </tr>
+    {{/if}}
+    <tr>
+      <th>消耗时间:</th>
+      <td>${times.elapsedTime}</td>
+    </tr>
+    {{if $item.logURL}}
+    <tr>
+      <th>日志文件:</th>
+      <td><a href="${$item.logURL}">${$item.logURL}</a></td>
+    </tr>
+    {{/if}}
+  </table>
+</script>
+
+<script type="text/x-jquery-tmpl" id="totalStatisticsRowTemplate">
+  <tr onclick=" totalDetailSelected('all')" class="row-${$item.index}">
+    <td class="stats-col-name">
+      <div class="stat-name">
+        <a href="#totals?all">所有测试用例</a>
+      </div>
+    </td>
+    {{tmpl($data) 'statColumnsTemplate'}}
+  </tr>
+</script>
+
+<script type="text/x-jquery-tmpl" id="tagStatisticsRowTemplate">
+  <tr onclick="tagDetailSelected('${label}')" class="row-${$item.index}">
+    <td class="stats-col-name" title="{{html doc}}">
+      <div class="stat-name">
+        <a href="#tags?${label}">{{html label}}</a>
+        {{if info}}(${info}){{/if}}
+      </div>
+      <div class="tag-links">
+        {{each links}}
+        <span>[<a href="{{html $value.url}}" onclick="stopPropagation(event)"
+                  title="{{html $value.url}}">{{html $value.title}}</a>]</span>
+        {{/each}}
+      </div>
+    </td>
+    {{tmpl($data) 'statColumnsTemplate'}}
+  </tr>
+</script>
+
+<script type="text/x-jquery-tmpl" id="suiteStatisticsRowTemplate">
+  <tr onclick="suiteDetailSelected('${id}')" class="row-${$item.index}">
+    <td class="stats-col-name" title="{{html label}}">
+      <div class="stat-name">
+        <a href="#suites?${id}"><span class="parent-name">{{html formatParentName}}</span>{{html name}}</a>
+      </div>
+    </td>
+    {{tmpl($data) 'statColumnsTemplate'}}
+  </tr>
+</script>
+
+<script type="text/x-jquery-tmpl" id="detailsHeaderTemplate">
+  <h2 id="${linkTarget}">测试详情</h2>
+  <ul id="detail-tabs">
+    <li class="${totalTabStatus} detail-tab">
+      <a href="#totals" onclick="renderTotalSelector()">用例统计</a>
+    </li>
+    <li class="${tagTabStatus} detail-tab">
+      <a href="#tags" onclick="renderTagSelector()">级别</a>
+    </li>
+    <li class="${suiteTabStatus} detail-tab">
+      <a href="#suites" onclick="renderSuiteSelector()">测试集</a>
+    </li>
+    <li class="${searchTabStatus} detail-tab">
+      <a href="#search" onclick="renderSearchSelector()">搜索</a>
+    </li>
+  </ul>
+</script>
+
+<script  type="text/x-jquery-tmpl" id="totalDetailsSelectorTemplate">
+  <table class="details" id="details-header">
+    <tr class="selector">
+      <th>类型:</th>
+      <td id="normal-selector">
+        <input id="radio-critical" type="radio" name="totals-radio"
+               onclick="totalDetailSelected('critical')"
+               {{if selected == 'critical'}}checked="checked"{{/if}}>
+        <label for="radio-critical">失败测试用例</label><br>
+        <input id="radio-all" type="radio" name="totals-radio"
+               onclick="totalDetailSelected('all')"
+               {{if selected == 'all'}}checked="checked"{{/if}}>
+        <label for="radio-all">所有测试用例</label>
+      </td>
+      <td id="print-selector"></td>
+    </tr>
+  </table>
+</script>
+
+<script  type="text/x-jquery-tmpl" id="tagDetailsSelectorTemplate">
+  <table class="details" id="details-header">
+    <tr class="selector">
+      <th>名称:</th>
+      <td id="normal-selector">
+        <select id="tag-detail-selector"
+                onchange="tagDetailSelected(this.options[this.selectedIndex].value)">
+          <option value="">选择级别...</option>
+          {{each tags}}
+          <option value="${$value.label}"
+                  {{if $value.label == selected}}selected="selected"{{/if}}>
+            {{html $value.label}} {{if $value.info}}(${$value.info}){{/if}}
+          </option>
+          {{/each}}
+        </select>
+      </td>
+      <td id="print-selector"></td>
+    </tr>
+  </table>
+</script>
+
+<script  type="text/x-jquery-tmpl" id="suiteDetailsSelectorTemplate">
+  <table class="details" id="details-header">
+    <tr class="selector">
+      <th>名称:</th>
+      <td id="normal-selector">
+        <select id="suite-detail-selector"
+                onchange="suiteDetailSelected(this.options[this.selectedIndex].value)">
+          <option value="">选择测试集...</option>
+          {{each suites}}
+          <option value="${$value.id}"
+                  {{if $value.id == selected}}selected="selected"{{/if}}>
+            {{html $value.label}}
+          </option>
+          {{/each}}
+        </select>
+      </td>
+      <td id="print-selector"></td>
+    </tr>
+  </table>
+</script>
+
+<script  type="text/x-jquery-tmpl" id="searchSelectorTemplate">
+  <form action="javascript:void(0)">
+    <table class="details" id="details-header">
+      <tr class="selector first-selector">
+        <th><label for="search-suite">Suite:</label></th>
+        <td><input id="search-suite" type="text" value="${suite}"></td>
+      </tr>
+      <tr class="selector middle-selector">
+        <th><label for="search-test">Test:</label></th>
+        <td><input id="search-test" type="text" value="${test}"></td>
+      </tr>
+      <tr class="selector middle-selector">
+        <th><label for="search-include">Include:</label></th>
+        <td><input id="search-include" type="text" value="${include}"></td>
+      </tr>
+      <tr class="selector middle-selector">
+        <th><label for="search-exclude">Exclude:</label></th>
+        <td><input id="search-exclude" type="text" value="${exclude}"></td>
+      </tr>
+      <tr class="selector last-selector" id="search-buttons">
+        <th></th>
+        <td>
+          <input type="submit" value="Search"
+                 onclick="searchExecuted($('#search-suite').val(),
+                                         $('#search-test').val(),
+                                         $('#search-include').val(),
+                                         $('#search-exclude').val())">
+          <input type="button" value="Clear"
+                 onclick="$('#search-suite').val('');
+                          $('#search-test').val('');
+                          $('#search-include').val('');
+                          $('#search-exclude').val('')">
+          <a href="javascript:void(0)" onclick="$('#search-help').toggle()"
+             title="搜索帮助开关.">帮助</a>
+        </td>
+      </tr>
+      <tr id="search-help" style="display: none">
+        <th></th>
+        <td>
+          <div>
+            <h3>搜索框</h3>
+            <p>
+              测试用例能够通过测试集合和测试的名字搜到，也能通过标记搜到。如果使用多个搜索
+              关键字，那么搜到的将会是包含所有关键字的测试用例。
+              搜索框包含如下语义
+              <em>&#8209;&#8209;测试集</em>,
+              <em>&#8209;&#8209;测试</em>, 
+              <em>&#8209;&#8209;包含</em> 和
+              <em>&#8209;&#8209;排除</em> 的选项.
+            </p>
+            <table class="search-help-examples">
+              <col class="help-item">
+              <col class="help-explanation">
+              <col class="help-examples>
+              <tr>
+                <th>字段</th>
+                <th>释义</th>
+                <th>例子</th>
+              </tr>
+              <tr>
+                <td>测试集</td>
+                <td>
+                  测试集所包含的测试.它的匹配模式为测试集的名字或者包含上层测试集的全名.
+                </td>
+                <td>My Suite<br>Root.Parent.Sui*</td>
+              </tr>
+              <tr>
+                <td>测试</td>
+                <td>
+                  包含所有匹配的测试. 它的匹配模式为测试的名字和包含上层测试集的全名.
+                </td>
+                <td>Test*<br>Root.Pa*.T???</td>
+              </tr>
+              <tr>
+                <td>包含</td>
+                <td>
+                  包含匹配级别的测试
+                </td>
+                <td>smoke<br>bug-*</td>
+              </tr>
+              <tr>
+                <td>排除</td>
+                <td>
+                  不包含匹配级别的测试.
+                </td>
+                <td>slow<br>feature-4?</td>
+              </tr>
+            </table>
+            <h3>匹配模式</h3>
+            <p>
+              所有的搜索支持<em>*</em>和<em>?</em>,通配符会忽略大小写，空格，下划线.
+              级别搜索还支持
+              <em>AND</em>,<em>OR</em>和<em>NOT</em> (大小写敏感)
+              这些结合操作符. 如果操作符同时使用, 它们的优先级, 从高到低是
+              <em>AND</em>, <em>OR</em>,
+              <em>NOT</em>. 请查看 <em>简单匹配模式</em> 和
+              <em>级别匹配模式</em>段落:
+              <a href="http://robotframework.org/robotframework/#user-guide">Robot
+              Framework用户使用指南</a>版本2.8.4或者最新版本来获取详细信息.
+            </p>
+            <table class="search-help-examples">
+              <col class="help-item">
+              <col class="help-explanation">
+              <col class="help-examples>
+              <tr>
+                <th>模式</th>
+                <th>描述</th>
+                <th>例子</th>
+              </tr>
+              <tr>
+                <td>*</td>
+                <td>匹配一切,即使它是空的.</td>
+                <td>f*<br>sprint-*</td>
+              </tr>
+              <tr>
+                <td>?</td>
+                <td>匹配单个字符.</td>
+                <td>f??<br>sprint-1?</td>
+              </tr>
+              <tr>
+                <td>AND</td>
+                <td>如果所有的模式都匹配成功.</td>
+                <td>foo AND bar<br>x AND y* AND z??</td>
+              </tr>
+              <tr>
+                <td>OR</td>
+                <td>任何一个模式匹配成功.</td>
+                <td>foo OR bar<br>x OR y* OR z1 AND z2</td>
+              </tr>
+              <tr>
+                <td>NOT</td>
+                <td>如果前面匹配成功,那么就匹配不成功,取反搜索.</td>
+                <td>foo NOT bar<br>* NOT id-* AND smoke</td>
+              </tr>
+            </table>
+          </div>
+        </td>
+      </tr>
+    </table>
+  </form>
+</script>
+
+<script type="text/x-jquery-tmpl" id="tagOrTotalDetailsTemplate">
+  <tr>
+    <th>状态:</th>
+    <td>${total} 总计, ${pass} 通过, {{if fail}}<span class="fail">${fail} 失败</span>{{else}}<span class="pass">0 失败</span>{{/if}}</td>
+  </tr>
+  {{if doc}}
+  <tr>
+    <th>说明:</th>
+    <td>{{html doc}}</td>
+  </tr>
+  {{/if}}
+  {{if combined}}
+  <tr>
+    <th>匹配:</th>
+    <td>{{html combined}}</td>
+  </tr>
+  {{/if}}
+  {{if links}}{{if links.length}}
+  <tr>
+    <th>链接:</th>
+    <td>{{each links}}<a href="{{html $value.url}}"
+                         title="{{html $value.url}}">{{html $value.title}}</a> &nbsp; {{/each}}</td>
+  </tr>
+  {{/if}}{{/if}}
+  <tr>
+    <th>总共用时:</th>
+    <td>${totalTime}</td>
+  </tr>
+</script>
+
+<script type="text/x-jquery-tmpl" id="suiteDetailsTemplate">
+  <tr>
+    <th>状态:</th>
+    <td>{{tmpl($data) 'suiteStatusMessageTemplate'}}</td>
+  </tr>
+  {{if doc()}}
+  <tr>
+    <th>说明:</th>
+    <td class="doc">{{html doc()}}</td>
+  </tr>
+  {{/if}}
+  {{each metadata}}
+  <tr>
+    <th>{{html $value[0]}}:</th>
+    <td class="doc">{{html $value[1]}}</td>
+  </tr>
+  {{/each}}
+  {{if message()}}
+  <tr>
+    <th>Message:</th>
+    <td class="message">{{html message()}}</td>
+  </tr>
+  {{/if}}
+  <tr>
+    <th>开始/结束 时间:</th>
+    <td>${times.startTime} / ${times.endTime}</td>
+  </tr>
+  <tr>
+    <th>耗时时间:</th>
+    <td>${times.elapsedTime}</td>
+  </tr>
+  {{if $item.logURL}}
+  <tr>
+    <th>日志文件:</th>
+    <td><a href="${$item.logURL}#${id}"
+           title="{{html fullName}}">${$item.logURL}#${id}</a></td>
+  </tr>
+  {{/if}}
+</script>
+
+<script type="text/x-jquery-tmpl" id="testDetailsTableTemplate">
+  <table id="test-details">
+    <thead>
+      <tr>
+        <th class="details-col-name" title="用例名称">
+          <div class='details-col-header'>用例名称</div>
+        </th>
+        <th class="details-col-tags" title="级别">
+          <div class='details-col-toggle' onclick="toggleDetailsColumn('tags')">&times;</div>
+          <div class='details-col-header'>级别</div>
+        </th>
+        <th class="details-col-status" title="状态">
+          <div class='details-col-header'>状态</div>
+        </th>
+        <th class="details-col-msg" title="日志">
+          <div class='details-col-toggle' onclick="toggleDetailsColumn('msg')">&times;</div>
+          <div class='details-col-header'>日志</div>
+        </th>
+        <th class="details-col-elapsed" title="耗时">
+          <div class='details-col-toggle' onclick="toggleDetailsColumn('elapsed')">&times;</div>
+          <div class='details-col-header'>耗时</div>
+        </th>
+        <th class="details-col-times" title="开始/结束">
+          <div class='details-col-toggle' onclick="toggleDetailsColumn('times')">&times;</div>
+          <div class='details-col-header'>开始/结束</div>
+        </th>
+            <th class="details-col-doc" title="备注">
+          <div class='details-col-toggle' onclick="toggleDetailsColumn('doc')">&times;</div>
+          <div class='details-col-header'>备注</div>
+        </th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</script>
+
+<script type="text/x-jquery-tmpl" id="testDetailsTableRowTemplate">
+{{if status==isStatus}}
+  {{if $item.logURL}}
+  <tr onclick="location = '${$item.logURL}#${id}'" title="{{html fullName}}">
+    <td class="details-col-name">
+      <div><a href="${$item.logURL}#${id}"><span class="parent-name">{{html formatParentName}}</span>{{html name}}</a></div>
+    </td>
+  {{else}}
+  <tr title="{{html fullName}}">
+    <td class="details-col-name">
+      <div><span class="parent-name">{{html formatParentName}}</span>{{html name}}</div>
+    </td>
+  {{/if}}
+    <td class="details-col-tags"><div>{{html tags.join(', ')}}</div></td>
+    <td class="details-col-status"><div class="${status.toLowerCase()}">${status}</div></td>
+    <td class="details-col-msg"><div class="message details-limited">{{html message()}}</div></td>
+    <td class="details-col-elapsed"><div>${times.elapsedTime}</div></td>
+    <td class="details-col-times"><div>${times.startTime}<br>${times.endTime}</div></td>
+    <td class="details-col-doc"><div class="doc details-limited">{{html doc()}}</div></td>
+  </tr>
+  {{/if}}
+{{if isStatus=='ALL'}}
+  {{if $item.logURL}}
+  <tr onclick="location = '${$item.logURL}#${id}'" title="{{html fullName}}">
+    <td class="details-col-name">
+      <div><a href="${$item.logURL}#${id}"><span class="parent-name">{{html formatParentName}}</span>{{html name}}</a></div>
+    </td>
+  {{else}}
+  <tr title="{{html fullName}}">
+    <td class="details-col-name">
+      <div><span class="parent-name">{{html formatParentName}}</span>{{html name}}</div>
+    </td>
+  {{/if}}
+    <td class="details-col-tags"><div>{{html tags.join(', ')}}</div></td>
+    <td class="details-col-status"><div class="${status.toLowerCase()}">${status}</div></td>
+    <td class="details-col-msg"><div class="message details-limited">{{html message()}}</div></td>
+    <td class="details-col-elapsed"><div>${times.elapsedTime}</div></td>
+    <td class="details-col-times"><div>${times.startTime}<br>${times.endTime}</div></td>
+    <td class="details-col-doc"><div class="doc details-limited">{{html doc()}}</div></td>
+  </tr>
+  {{/if}}
+</script>
+
+</body>
+</html>
